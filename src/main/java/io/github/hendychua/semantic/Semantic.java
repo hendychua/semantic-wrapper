@@ -5,11 +5,18 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.io.IOUtils;
 
+import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
+
+import static java.util.stream.Collectors.toList;
 
 /**
  * A wrapper for Github's semantic library (https://github.com/github/semantic).
@@ -43,6 +50,50 @@ public class Semantic {
     public JsonSymbols parseJsonSymbols(Path filePath) throws IOException, InterruptedException,
             NoLanguageForBlobException {
         return parse(filePath, "--json-symbols", JsonSymbols.class);
+    }
+
+    /**
+     * Searches directory recursively for files and parse them for Json symbols. If ext is not null,
+     * parses only files that end with the extension.
+     * @param dir the directory to search through.
+     * @param ext (optional) file extension e.g. ".java", ".py"
+     * @param failFast whether to throw an exception immediately if a parse operation fails.
+     *                 If false, the operation will continue even if some files fail to parse, producing
+     *                 {@link ParseDirectoryOutput} instance at the end which will consist of the list of
+     *                 failed files.
+     * @return a {@link ParseDirectoryOutput} instance.
+     */
+    public ParseDirectoryOutput parseJsonSymbolsInDir(Path dir, @Nullable String ext, boolean failFast) throws
+            IOException, InterruptedException, NoLanguageForBlobException {
+        final List<Path> matchedFiles;
+        try (Stream<Path> pathStream = Files.walk(dir).filter(Files::isRegularFile)
+                .filter(path -> ext == null || path.endsWith(ext))) {
+            matchedFiles = pathStream.collect(toList());
+        }
+
+        final List<JsonSymbols> jsonSymbols = new ArrayList<>();
+        final List<FailedFile> failedFiles = new ArrayList<>();
+
+        for (Path file: matchedFiles) {
+            try {
+                jsonSymbols.add(parseJsonSymbols(file));
+            } catch (IOException | InterruptedException | NoLanguageForBlobException ex) {
+                if (failFast) {
+                    throw ex;
+                }
+
+                failedFiles.add(new FailedFile.Builder()
+                        .filePath(file)
+                        .errorMsg(ex.getMessage())
+                        .build()
+                );
+            }
+        }
+
+        return new ParseDirectoryOutput.Builder()
+                .addAllJsonSymbols(jsonSymbols)
+                .addAllFailures(failedFiles)
+                .build();
     }
 
     private <T> T parse(Path filePath, String option, Class<T> klass) throws IOException, InterruptedException,
