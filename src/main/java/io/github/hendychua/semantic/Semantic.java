@@ -67,7 +67,7 @@ public class Semantic {
             IOException, InterruptedException, NoLanguageForBlobException {
         final List<Path> matchedFiles;
         try (Stream<Path> pathStream = Files.walk(dir).filter(Files::isRegularFile)
-                .filter(path -> ext == null || path.endsWith(ext))) {
+                .filter(path -> ext == null || path.toString().endsWith(ext))) {
             matchedFiles = pathStream.collect(toList());
         }
 
